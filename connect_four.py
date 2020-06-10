@@ -32,10 +32,12 @@ class ConnectFour:
         self.board_state[row_to_place][column_to_place] = player_name
 
 
-    # returns a list of the valid columns (columns which are not full)
-    def get_valid_inputs(self):
+    # returns a list of the valid columns (columns which are not full) for a given board state
+    # works for both 2D arrays and 2D tuples of ints
+    @staticmethod
+    def get_valid_inputs(board_state):
         valid_inputs = []
-        for i, entry in enumerate(self.board_state[0]):
+        for i, entry in enumerate(board_state[0]):
             if entry == 0:
                 valid_inputs.append(i)
 
@@ -78,7 +80,7 @@ class ConnectFour:
                     return 2
 
         # if no spots open, game has ended as a tie
-        if len(self.get_valid_inputs()) == 0:
+        if len(self.get_valid_inputs(self.board_state)) == 0:
             return 3
 
         return 0
