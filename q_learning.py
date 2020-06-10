@@ -2,6 +2,7 @@ import random
 import pprint
 import os
 import pickle
+import json
 
 import pandas as pd
 from tqdm import tqdm
@@ -136,8 +137,23 @@ class QLearning:
     # alg_type in {"SARSA, MC", "Q"}
     # if experiment_name not specified, results not saved
     # epsilon in [0,1] is the percent chance that we pick a random control instead of the optimal
-    def train(self, alg_type, learning_rate, discount_factor, episode_epsilon, num_iterations = 1, test_every = 10000, experiment_name = ""):
-        
+    def train(self, train_settings):
+
+        alg_type = train_settings['alg_type']
+        learning_rate = train_settings['learning_rate']
+        discount_factor = train_settings['discount_factor']
+        episode_epsilon = train_settings['episode_epsilon']
+        num_iterations = train_settings['num_iterations']
+        test_every = train_settings['test_every']
+        experiment_name = train_settings['experiment_name']
+
+        experiment_dir = os.path.join(self.experiments_folder, experiment_name)
+        if not os.path.exists(experiment_dir):
+            os.makedirs(experiment_dir)
+            # write settings dict to file
+            with open(os.path.join(experiment_dir,'training_settings.txt'), 'w') as file:
+                file.write(json.dumps(train_settings))
+
         #outcome2reward = {1:1, 2:-1, 3:0.5}
         outcome2loss = {1:-1, 2:1, 3:-0.5}
         train_df = pd.DataFrame()
@@ -163,7 +179,7 @@ class QLearning:
                 i += 2
 
             # periodically, print win rate against random opponents, update df, update Q function
-            if iteration % test_every == 0:
+            if iteration % test_every == 0 or iteration == num_iterations-1 :
                 wins, ties, losses, unexplored_rate = self.test(100)
                 win_rate = wins / (ties + losses + wins)
                 tie_rate = ties / (ties + losses + wins)
@@ -172,9 +188,6 @@ class QLearning:
                 train_df = train_df.append(df_log, ignore_index = True)
 
                 if experiment_name != "":
-                    experiment_dir = os.path.join(self.experiments_folder, experiment_name)
-                    if not os.path.exists(experiment_dir):
-                        os.makedirs(experiment_dir)
                     train_df.to_pickle(os.path.join(experiment_dir, "training_df.p"))
                     pickle.dump(self.Q_function, open(os.path.join(experiment_dir,"Q_function.p"), "wb"))
 
