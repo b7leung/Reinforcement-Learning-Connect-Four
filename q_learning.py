@@ -134,6 +134,28 @@ class QLearning:
         return wins, ties, losses, unexplored_rate/num_moves
 
 
+    def Q_learning_update(self, episode, game_outcome, train_settings):
+        learning_rate = train_settings['learning_rate']
+        discount_factor = train_settings['discount_factor']
+        #outcome2reward = {1:1, 2:-1, 3:0.5}
+        outcome2loss = {1:-1, 2:1, 3:-0.5}
+        end_loss = outcome2loss[game_outcome]
+
+        i=0
+        while i < len(episode)-2:
+            x = episode[i]
+            u = episode[i+1]
+            x_prime = episode[i+2]
+            if i == len(episode)-3:
+                loss = end_loss
+            else:
+                loss = 0
+
+            # TODO: Also update states for oponnent?
+            self.Q_function[(x,u)] = self.Q_function[(x,u)] + learning_rate * (loss + discount_factor*self.minQ(x)[1] - self.Q_function[(x,u)])
+            i += 2
+        
+
     # alg_type in {"SARSA, MC", "Q"}
     # if experiment_name not specified, results not saved
     # epsilon in [0,1] is the percent chance that we pick a random control instead of the optimal
@@ -147,36 +169,23 @@ class QLearning:
         test_every = train_settings['test_every']
         experiment_name = train_settings['experiment_name']
 
+        # write settings dict to file
         experiment_dir = os.path.join(self.experiments_folder, experiment_name)
         if not os.path.exists(experiment_dir):
             os.makedirs(experiment_dir)
-            # write settings dict to file
-            with open(os.path.join(experiment_dir,'training_settings.txt'), 'w') as file:
-                file.write(json.dumps(train_settings))
+        with open(os.path.join(experiment_dir,'training_settings.txt'), 'w') as file:
+            file.write(json.dumps(train_settings))
 
-        #outcome2reward = {1:1, 2:-1, 3:0.5}
-        outcome2loss = {1:-1, 2:1, 3:-0.5}
         train_df = pd.DataFrame()
 
         for iteration in tqdm(range(num_iterations)):
             
             episode, game_outcome = self.generate_episode(episode_epsilon)
-            end_loss = outcome2loss[game_outcome]
 
-            # updating Q_value function from policy
-            i=0
-            while i < len(episode)-2:
-                x = episode[i]
-                u = episode[i+1]
-                x_prime = episode[i+2]
-                if i == len(episode)-3:
-                    loss = end_loss
-                else:
-                    loss = 0
-
-                # TODO: Also update states for oponnent?
-                self.Q_function[(x,u)] = self.Q_function[(x,u)] + learning_rate * (loss + discount_factor*self.minQ(x)[1] - self.Q_function[(x,u)])
-                i += 2
+            if alg_type == "Q":
+                self.Q_learning_update(episode, game_outcome, train_settings)
+            else:
+                raise
 
             # periodically, print win rate against random opponents, update df, update Q function
             if iteration % test_every == 0 or iteration == num_iterations-1 :

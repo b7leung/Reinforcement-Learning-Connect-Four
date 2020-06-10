@@ -14,9 +14,9 @@ train_settings = {
     "learning_rate":1,
     "discount_factor":0.9,
     "episode_epsilon":0.15,
-    "num_iterations": 29000,
-    "test_every": 10000,
-    "experiment_name":"first_experiment3",
+    "num_iterations": 10000,
+    "test_every": 1000,
+    "experiment_name":"restarted",
     "other_notes":""
 }
 
