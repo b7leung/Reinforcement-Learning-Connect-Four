@@ -1,7 +1,10 @@
 import random
 import pprint
+import os
+import pickle
 
 import pandas as pd
+from tqdm import tqdm
 
 import connect_four
 import ai
@@ -17,6 +20,9 @@ class QLearning:
         self.width = width
         self.height = height
         random.seed(seed)
+        self.experiments_folder = "./experiments"
+        if not os.path.exists(self.experiments_folder):
+            os.makedirs(self.experiments_folder)
 
 
     # converts a 2D array to a 2D tuple
@@ -41,6 +47,7 @@ class QLearning:
 
 
     # generate episode with a epsilon-greedy policy derived from Q
+    # epsilon in [0,1] is the percent chance that we pick a random control instead of the optimal
     # this also uses self-play (player 1 is AI, player 2 is AI's opponnent)
     def generate_episode(self, epsilon = 0):
 
@@ -57,8 +64,10 @@ class QLearning:
                 if Q_entry not in self.Q_function:
                     self.Q_function[Q_entry] = 0
 
-            # TODO: implement epsilon greedy
-            move, _ = self.minQ(curr_state_tuple)
+            if random.uniform(0,1) < epsilon:
+                move = random.choice(cf_game.get_valid_inputs(cf_game.board_state))
+            else:
+                move, _ = self.minQ(curr_state_tuple)
 
             # if it's AI's turn, update the episode
             if curr_player == 1:
@@ -123,16 +132,19 @@ class QLearning:
         
         return wins, ties, losses, unexplored_rate/num_moves
 
+
     # alg_type in {"SARSA, MC", "Q"}
-    def train(self, alg_type, learning_rate, discount_factor, num_iterations = 1, test_every = 10000):
+    # if experiment_name not specified, results not saved
+    # epsilon in [0,1] is the percent chance that we pick a random control instead of the optimal
+    def train(self, alg_type, learning_rate, discount_factor, episode_epsilon, num_iterations = 1, test_every = 10000, experiment_name = ""):
         
         #outcome2reward = {1:1, 2:-1, 3:0.5}
         outcome2loss = {1:-1, 2:1, 3:-0.5}
         train_df = pd.DataFrame()
 
-        for iteration in range(num_iterations):
+        for iteration in tqdm(range(num_iterations)):
             
-            episode, game_outcome = self.generate_episode()
+            episode, game_outcome = self.generate_episode(episode_epsilon)
             end_loss = outcome2loss[game_outcome]
 
             # updating Q_value function from policy
@@ -146,17 +158,24 @@ class QLearning:
                 else:
                     loss = 0
 
-                # TODO: Also update states for opponnent?
+                # TODO: Also update states for oponnent?
                 self.Q_function[(x,u)] = self.Q_function[(x,u)] + learning_rate * (loss + discount_factor*self.minQ(x)[1] - self.Q_function[(x,u)])
                 i += 2
 
-            # periodically, print win rate against random opponents
+            # periodically, print win rate against random opponents, update df, update Q function
             if iteration % test_every == 0:
                 wins, ties, losses, unexplored_rate = self.test(100)
-                # TODO: Also track ties
                 win_rate = wins / (ties + losses + wins)
-                df_log = {"iteration": iteration, "win_rate": win_rate, "Q_function_size":len(self.Q_function), "unexplored_states_rate": unexplored_rate}
-                print(df_log)
+                tie_rate = ties / (ties + losses + wins)
+                df_log = {"iteration": iteration, "win_rate": win_rate, "tie_rate":tie_rate, "Q_function_size":len(self.Q_function), "unexplored_states_rate": unexplored_rate}
+                tqdm.write(str(df_log))
                 train_df = train_df.append(df_log, ignore_index = True)
+
+                if experiment_name != "":
+                    experiment_dir = os.path.join(self.experiments_folder, experiment_name)
+                    if not os.path.exists(experiment_dir):
+                        os.makedirs(experiment_dir)
+                    train_df.to_pickle(os.path.join(experiment_dir, "training_df.p"))
+                    pickle.dump(self.Q_function, open(os.path.join(experiment_dir,"Q_function.p"), "wb"))
 
         return train_df
