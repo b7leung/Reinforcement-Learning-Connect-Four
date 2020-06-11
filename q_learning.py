@@ -3,12 +3,20 @@ import pprint
 import os
 import pickle
 import json
+import sys
 
 import pandas as pd
 from tqdm import tqdm
 
 import connect_four
 import ai
+
+sys.path.insert(1, 'MCTS/connect4/src')
+from tournament import Tournament
+from mcts.mcts_strategy import MctsStrategy
+from game import Game
+from player import Player
+from board import Board
 
 class QLearning:
 
@@ -27,8 +35,16 @@ class QLearning:
         self.opponents_dict = {
             "self_play": self.self_play_opponent,
             "random": self.random_opponent,
-            "leftmost": self.leftmost_opponent
+            "leftmost": self.leftmost_opponent,
+            "mcts_5": self.mcts_5_opponent,
+            "mcts_50": self.mcts_50_opponent,
+            "mcts_100": self.mcts_100_opponent,
+            "mcts_250": self.mcts_250_opponent,
+            "mcts_500": self.mcts_500_opponent,
+            "mcts_1000": self.mcts_1000_opponent
         }
+        self.train_settings = None
+        self.curr_training_iter = 0
 
 
     # converts a 2D array to a 2D tuple
@@ -70,7 +86,18 @@ class QLearning:
 
     # an opponent which uses the Q function as the next move
     def self_play_opponent(self, state_tuple):
-        move, _ = self.minQ(state_tuple)
+        num_iterations = self.train_settings['num_iterations']
+        curr_iteration = self.curr_training_iter
+        #epsilon = 0.25
+        # epsilon starts at 1 (all random) and moves to 0.05 as a function of the current iteration of training
+        epsilon = 1-min(curr_iteration/(num_iterations/2), 1.0-0.05)
+
+        if random.uniform(0,1) < epsilon:
+            #move = random.choice(cf_game.get_valid_inputs(cf_game.board_state))
+            move = random.choice(connect_four.ConnectFour.get_valid_inputs(state_tuple))
+        else:
+            move, _ = self.minQ(state_tuple)
+
         return move
 
 
@@ -86,12 +113,43 @@ class QLearning:
         return move
 
 
+    def mcts_opponent(self, state_tuple, rollout_limit):
+        state_arr = [[str(t2) for t2 in t] for t in state_tuple]
+        b = Board(self.width, self.height)
+        b.board = state_arr[::-1]
+
+        players = [Player('1'), Player('2')]
+        game_number = 1
+        g = Game(b, players, game_number)
+
+        # fix playerid
+        playerid = '2'
+        mcts_s = MctsStrategy(rollout_limit)
+        move = mcts_s.move(g, playerid)
+        return move
+    
+
+    def mcts_5_opponent(self, state_tuple):
+        return self.mcts_opponent(state_tuple, 5)
+    def mcts_50_opponent(self, state_tuple):
+        return self.mcts_opponent(state_tuple, 50)
+    def mcts_100_opponent(self, state_tuple):
+        return self.mcts_opponent(state_tuple, 100)
+    def mcts_250_opponent(self, state_tuple):
+        return self.mcts_opponent(state_tuple, 250)
+    def mcts_500_opponent(self, state_tuple):
+        return self.mcts_opponent(state_tuple, 500)
+    def mcts_1000_opponent(self, state_tuple):
+        return self.mcts_opponent(state_tuple, 1000)
+
+
     # generate episode with a epsilon-greedy policy derived from Q
     # epsilon in [0,1] is the percent chance that we pick a random control instead of the optimal
     # this also uses self-play (player 1 is AI, player 2 is AI's opponnent)
     def generate_episode(self, opponent, epsilon = 0):
 
-        episode = []
+        ai_episode = []
+        opponent_episode = []
         curr_player = 1 if self.AI_first else 2
         cf_game = connect_four.ConnectFour(self.width, self.height)
 
@@ -100,7 +158,7 @@ class QLearning:
             curr_state_tuple = self.array2tuple(cf_game.board_state)
 
             # add state to Q-function for all valid controls with value 0 if it's not in yet
-            # TODO: optimize this; this actually only needs to be outside of the AI if below for self-play opponent
+            # TODO: optimize this; this actually only needs to be outside of the AI if-statement below for self-play opponent
             for possible_control in cf_game.get_valid_inputs(cf_game.board_state):
                 Q_entry = (curr_state_tuple, possible_control)
                 if Q_entry not in self.Q_function:
@@ -113,25 +171,29 @@ class QLearning:
                 else:
                     move, _ = self.minQ(curr_state_tuple)
 
-                # if it's AI's turn, update the episode
-                episode.append(curr_state_tuple)
-                episode.append(move)
+                # update the episode
+                ai_episode.append(curr_state_tuple)
+                ai_episode.append(move)
 
             # opponent picks move using specified opponent type
             else:
                 move = opponent(curr_state_tuple)
+                # update the episode
+                opponent_episode.append(curr_state_tuple)
+                opponent_episode.append(move)
 
 
             cf_game.update_board(move, curr_player)
             game_outcome = cf_game.get_status()
             if game_outcome != 0:
-                episode.append(self.array2tuple(cf_game.board_state))
+                ai_episode.append(self.array2tuple(cf_game.board_state))
+                opponent_episode.append(self.array2tuple(cf_game.board_state))
                 break
             
             # switch to next player
             curr_player = 2 if curr_player == 1 else 1
 
-        return episode, game_outcome
+        return ai_episode, opponent_episode, game_outcome
 
 
     # test the current Q_function on a list of opponents. Opponents list should be in form [[name, ]]
@@ -147,11 +209,12 @@ class QLearning:
         opponents = [self.opponents_dict[opponent_name] for opponent_name in opponent_names]
 
         for opponent_name, opponent in zip(opponent_names, opponents):
+            print(opponent_name)
             wins = 0
             ties = 0
             losses = 0
 
-            for i in range(iterations):
+            for i in tqdm(range(iterations)):
                 curr_player = 1 if self.AI_first else 2
                 cf_game = connect_four.ConnectFour(self.width, self.height)
 
@@ -216,28 +279,6 @@ class QLearning:
             i += 2
     
 
-    # update step for reward-based Q learning
-    def Q_learning_reward_update(self, episode, game_outcome, train_settings):
-        learning_rate = train_settings['learning_rate']
-        discount_factor = train_settings['discount_factor']
-        outcome2reward = {1:1, 2:-1, 3:0.5}
-        end_reward = outcome2reward[game_outcome]
-
-        i=0
-        while i < len(episode)-2:
-            x = episode[i]
-            u = episode[i+1]
-            x_prime = episode[i+2]
-            if i == len(episode)-3:
-                reward = end_reward
-            else:
-                reward = 0
-
-            # TODO: Also update states for oponnent?
-            self.Q_function[(x,u)] = self.Q_function[(x,u)] + learning_rate * (reward + discount_factor*self.maxQ(x_prime)[1] - self.Q_function[(x,u)])
-            i += 2
-
-
     # in train_settings: 
     # - alg_type in {"SARSA, MC", "Q"}
     # - policy_opponent in {"self_play", "random", "leftmost"}
@@ -245,6 +286,7 @@ class QLearning:
     # if experiment_name not specified, results not saved
     # epsilon in [0,1] is the percent chance that we pick a random control instead of the optimal
     def train(self, train_settings):
+        self.train_settings = train_settings
         alg_type = train_settings['alg_type']
         learning_rate = train_settings['learning_rate']
         discount_factor = train_settings['discount_factor']
@@ -266,17 +308,20 @@ class QLearning:
         train_df = pd.DataFrame()
 
         for iteration in tqdm(range(num_iterations)):
-            
-            episode, game_outcome = self.generate_episode(policy_opponent, epsilon = episode_epsilon)
+            self.curr_training_iter = iteration
+            ai_episode, opponent_episode, game_outcome = self.generate_episode(policy_opponent, epsilon = episode_epsilon)
 
             if alg_type == "Q":
-                self.Q_learning_update(episode, game_outcome, train_settings)
+                self.Q_learning_update(ai_episode, game_outcome, train_settings)
+                # Note: for simplicity we always also update Q value for opponent but
+                # this actually only needs to be done when policy_opponent is self_play
+                self.Q_learning_update(opponent_episode, game_outcome, train_settings)
             else:
                 raise
 
             # periodically, print win rate against random opponents, update df, update Q function
             if iteration % test_every == 0 or iteration == num_iterations-1 :
-                test_results, unexplored_rate = self.test(2000, test_opponents)
+                test_results, unexplored_rate = self.test(100, test_opponents)
 
                 df_log = {"iteration": iteration, "Q_function_size":len(self.Q_function), "unexplored_states_rate": unexplored_rate}
                 for opponent in test_results:
