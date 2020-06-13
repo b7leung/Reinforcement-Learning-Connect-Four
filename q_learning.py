@@ -9,7 +9,6 @@ import pandas as pd
 from tqdm import tqdm
 
 import connect_four
-import ai
 
 sys.path.insert(1, 'MCTS/connect4/src')
 from tournament import Tournament
@@ -37,14 +36,15 @@ class QLearning:
             "random": self.random_opponent,
             "leftmost": self.leftmost_opponent,
             "mcts_5": self.mcts_5_opponent,
-            "mcts_50": self.mcts_50_opponent,
-            "mcts_100": self.mcts_100_opponent,
-            "mcts_250": self.mcts_250_opponent,
-            "mcts_500": self.mcts_500_opponent,
-            "mcts_1000": self.mcts_1000_opponent
+            "mcts_25": self.mcts_25_opponent,
+            "mcts_50": self.mcts_50_opponent
         }
         self.train_settings = None
         self.curr_training_iter = 0
+
+        # used for self-play
+        self.Q_function_history= []
+        self.curr_iter_Q_index = {}
 
 
     # converts a 2D array to a 2D tuple
@@ -52,40 +52,62 @@ class QLearning:
         return tuple(tuple(a) for a in array)
 
 
-    # given a board state tuple x, get argmin_u' Q(x,u') and min_u' Q(x,u')  over all valid u'
+    # given a Q function dict and a board state tuple x, get argmin_u' Q(x,u') and min_u' Q(x,u')  over all valid u'
     # if there are no entries in Q for x, none will be returned
-    def minQ(self, x):
+    def minQ(self, x, Q_dict):
         best_control = None
         smallest_Q = None
         controls = connect_four.ConnectFour.get_valid_inputs(x)
         random.shuffle(controls)
         for u in controls:
-            if (x, u) in self.Q_function:
-                if smallest_Q is None or self.Q_function[(x, u)] < smallest_Q:
-                    smallest_Q = self.Q_function[(x, u)]
+            if (x, u) in Q_dict:
+                if smallest_Q is None or Q_dict[(x, u)] < smallest_Q:
+                    smallest_Q = Q_dict[(x, u)]
                     best_control = u 
 
         return best_control, smallest_Q
 
 
-    # given a board state tuple x, get argmax_u' Q(x,u') and max_u' Q(x,u')  over all valid u'
-    # if there are no entries in Q for x, none will be returned
-    def maxQ(self, x):
-        best_control = None
-        largest_Q = None
-        controls = connect_four.ConnectFour.get_valid_inputs(x)
-        random.shuffle(controls)
-        for u in controls:
-            if (x, u) in self.Q_function:
-                if largest_Q is None or self.Q_function[(x, u)] > largest_Q:
-                    largest_Q = self.Q_function[(x, u)]
-                    best_control = u 
+    # an opponent which uses the Q function as the next move
+    def self_play_opponent(self, state_tuple):
+        iterations_save = 100000
+        max_history_size = 1
+        curr_iteration = self.curr_training_iter
+        epsilon = 0.05
 
-        return best_control, largest_Q
+        # managining history
+        if len(self.Q_function_history) == 0 or curr_iteration % iterations_save == 0:
+            self.Q_function_history.append(self.Q_function.copy())
+            if len(self.Q_function_history) > max_history_size:
+                self.Q_function_history.pop(0)
+        
+        if len(self.curr_iter_Q_index) > 1:
+            raise
+
+        # assign a Q index for the current iteration
+        if curr_iteration not in self.curr_iter_Q_index:
+            self.curr_iter_Q_index = {curr_iteration:random.randint(0,len(self.Q_function_history))}
+
+
+        if random.uniform(0,1) < epsilon:
+            move = random.choice(connect_four.ConnectFour.get_valid_inputs(state_tuple))
+        else:
+
+            Q_index = self.curr_iter_Q_index[curr_iteration]
+
+            if Q_index == len(self.Q_function_history):
+                move, _ = self.minQ(state_tuple, self.Q_function)
+            else:
+                move, _ = self.minQ(state_tuple, self.Q_function_history[Q_index])
+                # if state is not in the previous Q function, just return random
+                if move is None:
+                    move = random.choice(connect_four.ConnectFour.get_valid_inputs(state_tuple))
+
+        return move
 
 
     # an opponent which uses the Q function as the next move
-    def self_play_opponent(self, state_tuple):
+    def self_play_randomized_opponent(self, state_tuple):
         num_iterations = self.train_settings['num_iterations']
         curr_iteration = self.curr_training_iter
         #epsilon = 0.25
@@ -96,7 +118,7 @@ class QLearning:
             #move = random.choice(cf_game.get_valid_inputs(cf_game.board_state))
             move = random.choice(connect_four.ConnectFour.get_valid_inputs(state_tuple))
         else:
-            move, _ = self.minQ(state_tuple)
+            move, _ = self.minQ(state_tuple, self.Q_function)
 
         return move
 
@@ -131,16 +153,10 @@ class QLearning:
 
     def mcts_5_opponent(self, state_tuple):
         return self.mcts_opponent(state_tuple, 5)
+    def mcts_25_opponent(self, state_tuple):
+        return self.mcts_opponent(state_tuple, 25)
     def mcts_50_opponent(self, state_tuple):
         return self.mcts_opponent(state_tuple, 50)
-    def mcts_100_opponent(self, state_tuple):
-        return self.mcts_opponent(state_tuple, 100)
-    def mcts_250_opponent(self, state_tuple):
-        return self.mcts_opponent(state_tuple, 250)
-    def mcts_500_opponent(self, state_tuple):
-        return self.mcts_opponent(state_tuple, 500)
-    def mcts_1000_opponent(self, state_tuple):
-        return self.mcts_opponent(state_tuple, 1000)
 
 
     # generate episode with a epsilon-greedy policy derived from Q
@@ -169,7 +185,7 @@ class QLearning:
                 if random.uniform(0,1) < epsilon:
                     move = random.choice(cf_game.get_valid_inputs(cf_game.board_state))
                 else:
-                    move, _ = self.minQ(curr_state_tuple)
+                    move, _ = self.minQ(curr_state_tuple, self.Q_function)
 
                 # update the episode
                 ai_episode.append(curr_state_tuple)
@@ -209,12 +225,11 @@ class QLearning:
         opponents = [self.opponents_dict[opponent_name] for opponent_name in opponent_names]
 
         for opponent_name, opponent in zip(opponent_names, opponents):
-            print(opponent_name)
             wins = 0
             ties = 0
             losses = 0
 
-            for i in tqdm(range(iterations)):
+            for i in (range(iterations)):
                 curr_player = 1 if self.AI_first else 2
                 cf_game = connect_four.ConnectFour(self.width, self.height)
 
@@ -223,7 +238,7 @@ class QLearning:
                     curr_state_tuple = self.array2tuple(cf_game.board_state)
                     # AI's turn
                     if curr_player == 1:
-                        move, _ = self.minQ(curr_state_tuple)
+                        move, _ = self.minQ(curr_state_tuple, self.Q_function)
                         # if Q does not have an entry for the current state x, just pick a random move
                         if move is None:
                             unexplored_rate += 1
@@ -271,16 +286,28 @@ class QLearning:
                 min_x_prime = 0
             else:
                 loss = 0
-                min_x_prime = self.minQ(x_prime)[1]
+                min_x_prime = self.minQ(x_prime, self.Q_function)[1]
             
 
-            # TODO: Also update states for oponnent?
             self.Q_function[(x,u)] = self.Q_function[(x,u)] + learning_rate * (loss + discount_factor*min_x_prime - self.Q_function[(x,u)])
             i += 2
     
 
+    def MC_PI_update(self, episode, game_outcome, train_settings):
+        learning_rate = train_settings['learning_rate']
+        outcome2loss = {1:-1, 2:1, 3:-0.5}
+        end_loss = outcome2loss[game_outcome]
+
+        i=0
+        while i < len(episode)-2:
+            x = episode[i]
+            u = episode[i+1]
+            self.Q_function[(x,u)] = self.Q_function[(x,u)] + learning_rate * (end_loss - self.Q_function[(x,u)])
+            i += 2
+
+
     # in train_settings: 
-    # - alg_type in {"SARSA, MC", "Q"}
+    # - alg_type in {"MC", "Q"}
     # - policy_opponent in {"self_play", "random", "leftmost"}
     # - test_opponents is a list with elements in {"self_play", "random", "leftmost"}
     # if experiment_name not specified, results not saved
@@ -309,19 +336,28 @@ class QLearning:
 
         for iteration in tqdm(range(num_iterations)):
             self.curr_training_iter = iteration
-            ai_episode, opponent_episode, game_outcome = self.generate_episode(policy_opponent, epsilon = episode_epsilon)
+            ai_episode, opponent_episode, game_outcome_ai = self.generate_episode(policy_opponent, epsilon = episode_epsilon)
+            if game_outcome_ai == 1:
+                game_outcome_opponent = 2
+            elif game_outcome_ai == 2:
+                game_outcome_opponent = 1
+            elif game_outcome_ai == 3:
+                game_outcome_opponent = 3
 
             if alg_type == "Q":
-                self.Q_learning_update(ai_episode, game_outcome, train_settings)
+                self.Q_learning_update(ai_episode, game_outcome_ai, train_settings)
                 # Note: for simplicity we always also update Q value for opponent but
                 # this actually only needs to be done when policy_opponent is self_play
-                self.Q_learning_update(opponent_episode, game_outcome, train_settings)
+                self.Q_learning_update(opponent_episode, game_outcome_opponent, train_settings)
+            elif alg_type == "MC":
+                self.MC_PI_update(ai_episode, game_outcome_ai, train_settings)
+                self.MC_PI_update(opponent_episode, game_outcome_opponent, train_settings)
             else:
                 raise
 
             # periodically, print win rate against random opponents, update df, update Q function
             if iteration % test_every == 0 or iteration == num_iterations-1 :
-                test_results, unexplored_rate = self.test(100, test_opponents)
+                test_results, unexplored_rate = self.test(80, test_opponents)
 
                 df_log = {"iteration": iteration, "Q_function_size":len(self.Q_function), "unexplored_states_rate": unexplored_rate}
                 for opponent in test_results:
