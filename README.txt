@@ -1,5 +1,5 @@
+This is a project to create an AI that learns to play connect four, using reinforcement learning. For details, please refer to the [report](https://b7leung.github.io/files/Connect%20Four.pdf):
 
-The code I wrote for Project 4 contains the following files:
 
 * connect_four.py: The code for the connect four game mechanics, including managing the board state, updating it with a move input, and checking for win conditions (ie, if the current board states has a vertical, horizontal, or diagonal four in a row, as well as if the board state is a tie)
 
@@ -9,4 +9,4 @@ The code I wrote for Project 4 contains the following files:
 
 * Plots.py: A jupyter notebook used to plot the results.
 
-Note: For the code to be runnable, the matplotlib, numpy, pandas, and tqdm python packages are required. Also, clone the github repository from https://github.com/codebox/connect4. The code from this repo is used solely for evaluating my trained RL Connect Four agent at test time, as a black box. It is not used for the training, or anything reinforcement learning related (all the things related to RL is implemented by me). Please see Section 4 of the written report for details.
+Note: For the code to be runnable, the matplotlib, numpy, pandas, and tqdm python packages are required. Also, clone the github repository from https://github.com/codebox/connect4. The code from this repo is used solely for evaluating my trained RL Connect Four agent at test time, as a black box. It is not used for the training, or anything reinforcement learning related (all the things related to RL is implemented by me).
