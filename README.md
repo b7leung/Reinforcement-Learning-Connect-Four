@@ -1,4 +1,4 @@
-This is a project to create an AI that learns to play connect four, using reinforcement learning. For details, please refer to the [report](https://b7leung.github.io/files/Connect%20Four.pdf).
+An AI that learns to play connect four, using reinforcement learning. For details, please refer to the [report](https://b7leung.github.io/files/Connect%20Four.pdf).
 
 
 * connect_four.py: The code for the connect four game mechanics, including managing the board state, updating it with a move input, and checking for win conditions (ie, if the current board states has a vertical, horizontal, or diagonal four in a row, as well as if the board state is a tie)
