@@ -1,3 +1,6 @@
+![image](https://user-images.githubusercontent.com/20059131/130537091-acd15dd5-5426-4176-b163-6b2c151f961c.png)
+
+
 An AI that learns to play connect four, using reinforcement learning. For details, please refer to the [report](https://b7leung.github.io/files/Connect%20Four.pdf).
 
 
